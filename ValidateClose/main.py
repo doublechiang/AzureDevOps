@@ -1,6 +1,10 @@
 import os
 import requests
 from flask import Flask, request
+import sys
+
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 app = Flask(__name__)
 
@@ -33,7 +37,9 @@ def check_issue_status():
 
         # 1. 取得 Work Item 詳細資料 (包含 Relations)
         wi_url = f"https://dev.azure.com/{ORG_NAME}/_apis/wit/workitems/{work_item_id}?$expand=relations&api-version=7.1"
-        wi_data = requests.get(wi_url, auth=auth).json()
+        response = requests.get(wi_url, auth=auth)
+        print(f"DEBUG: status code = {response.status_code}", flush=True)
+        wi_data = response.json()
         
         relations = wi_data.get('relations', [])
         
