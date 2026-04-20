@@ -11,10 +11,17 @@ ORG_NAME = "quanta01"
 @app.route("/", methods=["POST"])
 def check_issue_status():
     payload = request.json
+    print((f"Payload: {payload}"))
     if not payload or 'resource' not in payload:
         return "Invalid Payload", 400
 
-    work_item_id = payload['resource']['workItemId']
+    resource = payload.get('resource', {})
+    work_item_id = resource.get('workItemId') or resource.get('id')
+
+    if not work_item_id:
+        print("Invalid Work Item ID")
+        return "Invalid Work Item ID", 200
+    
     # 這裡檢查是誰更改的，避免無窮迴圈 (如果是自動化帳號改的就跳過)
     revised_by = payload['resource']['fields'].get('System.ChangedBy', '')
     
