@@ -21,7 +21,22 @@ Area_Manager = {
     "QCIDiag\Msft" : "Wei-Kai.Huang@quantatw.com",
 }
 
-My_Email = "chun-yu.chiang@quatatw.com"
+My_Email = "chun-yu.chiang@quantatw.com"
+
+def get_guid_by_email(email, auth):
+    """透過 Email 查詢 Azure DevOps 內部的 GUID"""
+    try:
+        url = f"https://vssps.dev.azure.com/{ORG_NAME}/_apis/identities?searchFilter=General&filterValue={email}&api-version=7.1"
+        response = requests.get(url, auth=auth)
+        if response.status_code == 200:
+            data = response.json()
+            if data['count'] > 0:
+                # 回傳第一個匹配項的 ID
+                return data['value'][0]['id']
+    except Exception as e:
+        print(f"Error fetching GUID for {email}: {e}")
+    return None
+    
 
 @app.route("/", methods=["POST"])
 def check_issue_status():
@@ -32,15 +47,21 @@ def check_issue_status():
         if not payload or 'resource' not in payload:
             return "Invalid Payload", 400
 
-        resource = payload.get('resource', {})
-        work_item_id = resource.get('workItemId') or resource.get('id')
-        new_state = resource.get('fields', {}).get('System.State')
+        try:
+            # get the work item state is changed from old value to new value, if we can get the newValue, then it is a state change
+            resource = payload.get('resource', {})
+            work_item_id = resource.get('workItemId') or resource.get('id')
+            new_state = resource.get('fields', {}).get('System.State').get('newValue')
+        except AttributeError as e:
+            print(f"Error getting work item ID: {e}")
+            return "The stated is not changed", 200
 
         if not work_item_id:
             print("Invalid Work Item ID")
             return "Invalid Work Item ID", 200
 
         if new_state not in ['Closed', 'Done']:
+            print(f"DEBUG: new_state is {new_state}")
             return "Work Item State is not Closed or Done", 200
         
         # 這裡檢查是誰更改的，避免無窮迴圈 (如果是自動化帳號改的就跳過)
@@ -60,7 +81,7 @@ def check_issue_status():
         wi_fields = wi_full.get('fields', {})
         area_path = wi_fields.get('System.AreaPath', '')
         assigned_to = wi_fields.get('System.AssignedTo', {})
-        owner_email = assigned_to.get('uniqueName', '')
+        owner_email = assigned_to.get('uniqueName', '').lower()
         
         relations = wi_full.get('relations', [])
 
@@ -81,7 +102,7 @@ def check_issue_status():
             pr_status = pr_data['status']
             if pr_status == 'active':
                 active_pr_found = True
-                reasons.append(f"Active PR found, You need to close PR then close issue: {pr_id}")  
+                reasons.append(f"Active PR found, You need to close PR {pr_id} then close issue.")  
                 break
             if pr_status == 'completed':
                 pr_completed = True
@@ -100,15 +121,23 @@ def check_issue_status():
                 reasons.append("No Feature parent issue link")
 
         if reasons:
-            error_msg = "\n".join(reasons)
-            mentions = f"@{owner_email}"
+            error_msg = "<br>".join(reasons)
+            mentions = [owner_email]
             if area_path in Area_Manager:
-                mentions += f" @{Area_Manager[area_path]}"
-            mentions += f" @{My_Email}"
-
+                mentions.append(Area_Manager[area_path].lower())
+            mentions.append(My_Email.lower())
+            mentions = set(mentions)
+            mentions_text = ""
+            for m in mentions:
+                guid = get_guid_by_email(m, auth)
+                if guid is not None:
+                    mentions_text += f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}"> @{m}</a> '
+                else:
+                    mentions_text += f"< a href='mailto:{m}'>@{m}</a> "
+                
             revert_body = [
                 {"op": "add", "path": "/fields/System.State", "value": "In Progress"},
-                {"op": "add", "path": "/fields/System.History", "value": f"❌ Auto Check Failed: {error_msg}\n{mentions}"}
+                {"op": "add", "path": "/fields/System.History", "value": f"❌ Auto Check Failed: {error_msg}<br>{mentions_text}"}
             ]
             requests.patch(wi_url, json=revert_body, auth=auth, headers=headers)
             return "Policy Violated - Work Item Reverted", 200
