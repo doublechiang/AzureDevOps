@@ -16,7 +16,7 @@ PAT = os.environ.get("AZURE_PAT")
 ORG_NAME = "quanta01" 
 
 Area_Manager = {
-    # r"QCIDiag\QCT" : "EasonLin@quantatw.com",
+    r"QCIDiag\QCT" : "EasonLin@quantatw.com",
     # r"QCIDiag\Amazon" : "Joe_Huang@quantatw.com",
     # r"QCIDiag\Google" : "Alex.Lee@quantatw.com",
     # r"QCIDiag\Meta" : "Lance.Wu@quantatw.com",
@@ -59,6 +59,12 @@ def check_issue_status():
         # get the work item state is changed from old value to new value, if we can get the newValue, then it is a state change
         resource = payload.get('resource', {})
         fields = resource.get('fields', {})
+
+        # if it's feature or epic type, then ignore it
+        work_item_type = fields.get('System.WorkItemType', {})
+        if work_item_type not in ['Feature', 'Epic']:
+            return f"Ignore Item Type {work_item_type}", 200
+            
         state_field = fields.get('System.State', {})
         new_state = state_field.get('newValue') if isinstance(state_field, dict) else None
         work_item_id = resource.get('workItemId') or resource.get('id')
