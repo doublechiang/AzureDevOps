@@ -132,8 +132,8 @@ def check_issue_status():
             for m in mentions:
                 guid, display_name = get_identify_by_email(m, auth)
                 if guid is not None:
-                    tag = f'<a href="#" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
-                    print(f"DEBUG: Add tag = {tag}", flush=True)
+                    # tag = f'<a href="#" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
+                    tag = f'<a data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
                     mentions_list.append(tag)
                 else:
                     mentions_list.append(f'<a href="mailto:{m}">@{m}</a>')
