@@ -60,6 +60,9 @@ def check_issue_status():
         fields = resource.get('fields', {})
         state_field = fields.get('System.State', {})
         new_state = state_field.get('newValue') if isinstance(state_field, dict) else None
+        if state_field == 'In Progress':
+            return "Already processed", 200
+            
         work_item_id = resource.get('workItemId') or resource.get('id')
 
         if new_state not in ['Closed', 'Done']:
