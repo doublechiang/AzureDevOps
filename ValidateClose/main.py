@@ -20,7 +20,7 @@ Area_Manager = {
     # r"QCIDiag\Amazon" : "Joe_Huang@quantatw.com",
     # r"QCIDiag\Google" : "Alex.Lee@quantatw.com",
     # r"QCIDiag\Meta" : "Lance.Wu@quantatw.com",
-    r"QCIDiag\Msft" : "Wei-Kai.Huang@quantatw.com",
+    r"QCIDiag\\Msft" : "Wei-Kai.Huang@quantatw.com",
 }
 
 My_Email = "chun-yu.chiang@quantatw.com"
