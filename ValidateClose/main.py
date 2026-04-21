@@ -130,13 +130,13 @@ def check_issue_status():
                 guid = get_guid_by_email(m, auth)
                 display_name = m.split('@')[0]
                 if guid is not None:
-                    mentions_text += f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
+                    mentions_text += f'<a href="#" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
                 else:
                     mentions_text += f'<a href="mailto:{m}">@{display_name}</a>'
                 
             revert_body = [
                 {"op": "add", "path": "/fields/System.State", "value": "In Progress"},
-                {"op": "add", "path": "/fields/System.History", "value": f"<div>❌ <b>Auto Check Failed</b>: {error_msg}<br>{mentions_text}</div>"}
+                {"op": "add", "path": "/fields/System.History", "value": f"<div>❌ <b>Auto Check Failed</b>: {error_msg}<br><br>{mentions_text}</div>"}
             ]
             requests.patch(wi_url, json=revert_body, auth=auth, headers=headers)
             return "Policy Violated - Work Item Reverted", 200
