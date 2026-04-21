@@ -37,7 +37,8 @@ def get_identify_by_email(email, auth):
             if data['count'] > 0:
                 ident = data['value'][0]
                 guid = ident['id']
-                display_name = ident.get('displayName', email.split('@')[0])
+                display_name = ident.get('providerDisplayName') or ident.get('displayName') or email.split('@')[0]
+                print(f"DEBUG: Full Identity {ident}", flush=True)
                 GUID_CACHE[email] = (guid, display_name)
                 return guid, display_name
     except Exception as e:
