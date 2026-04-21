@@ -129,6 +129,7 @@ def check_issue_status():
 
             for m in mentions:
                 guid = get_guid_by_email(m, auth)
+                print(f"DEBUG: guid = {guid}", flush=True)
                 display_name = m.split('@')[0]
                 if guid is not None:
                     tag = f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
