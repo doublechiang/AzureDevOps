@@ -16,10 +16,10 @@ PAT = os.environ.get("AZURE_PAT")
 ORG_NAME = "quanta01" 
 
 Area_Manager = {
-    r"QCIDiag\QCT" : "EasonLin@quantatw.com",
-    r"QCIDiag\Amazon" : "Joe_Huang@quantatw.com",
-    r"QCIDiag\Google" : "Alex.Lee@quantatw.com",
-    r"QCIDiag\Meta" : "Lance.Wu@quantatw.com",
+    # r"QCIDiag\QCT" : "EasonLin@quantatw.com",
+    # r"QCIDiag\Amazon" : "Joe_Huang@quantatw.com",
+    # r"QCIDiag\Google" : "Alex.Lee@quantatw.com",
+    # r"QCIDiag\Meta" : "Lance.Wu@quantatw.com",
     r"QCIDiag\Msft" : "Wei-Kai.Huang@quantatw.com",
 }
 
@@ -38,7 +38,7 @@ def get_identify_by_email(email, auth):
                 ident = data['value'][0]
                 guid = ident['id']
                 display_name = ident.get('providerDisplayName') or ident.get('displayName') or email.split('@')[0]
-                print(f"DEBUG: Full Identity {ident}", flush=True)
+                # print(f"DEBUG: Full Identity {ident}", flush=True)
                 GUID_CACHE[email] = (guid, display_name)
                 return guid, display_name
     except Exception as e:
@@ -64,10 +64,7 @@ def check_issue_status():
 
         if new_state not in ['Closed', 'Done']:
             return f"Ignore Item State {new_state}", 200
-        
-        # 這裡檢查是誰更改的，避免無窮迴圈 (如果是自動化帳號改的就跳過)
-        revised_by = payload['resource']['fields'].get('System.ChangedBy', '')
-        
+                
         # 建立認證
         auth = ('', PAT)
         headers = {'Content-Type': 'application/json-patch+json'}
@@ -81,14 +78,22 @@ def check_issue_status():
         wi_full = wi_response.json()
         wi_fields = wi_full.get('fields', {})
         area_path = wi_fields.get('System.AreaPath', '')
+
+        # Check only specific area path
+        if area_path not in Area_Manager:
+            return "Ignore Item Area Path", 200
+
+        # 這裡檢查是誰更改的，避免無窮迴圈 (如果是自動化帳號改的就跳過)
         assigned_to = wi_fields.get('System.AssignedTo', {})
         owner_email = assigned_to.get('uniqueName', '').lower()
+        changed_by = wi_fields.get('System.ChangedBy').lower()
+        if '<' in changed_by:
+            changed_by = changed_by.split('<')[1].split('>')[0]
         
         relations = wi_full.get('relations', [])
 
 
         reasons = []
-        
 
         # If there is a PR, check if it is completed
         pr_completed = False
@@ -107,7 +112,7 @@ def check_issue_status():
             if pr_status == 'completed':
                 pr_completed = True
 
-        # if there is a completed PR, then check if there is a parent feature
+        # if there is any completed PR, then check if there is a parent feature
         if pr_completed:
             has_feature_parent = False
             for rel in relations:
@@ -122,26 +127,44 @@ def check_issue_status():
 
         if reasons:
             error_msg = " | ".join(reasons)
-            mentions = set()
-            mentions.add(owner_email.lower())
+            to_mentions = set()
+            cc_mentions = set()
+            to_mentions.add(owner_email.lower())
+            to_mentions.add(changed_by.lower())
+            cc_mentions.add(My_Email.lower())
             if area_path in Area_Manager:
-                mentions.add(Area_Manager[area_path].lower())
-            mentions.add(My_Email.lower())
-            mentions_list = []
+                cc_mentions.add(Area_Manager[area_path].lower())
+            cc_mentions.add(My_Email.lower())
 
-            for m in mentions:
+            to_mentions_list = []
+            cc_mentions_list = []
+
+            for m in to_mentions:
                 guid, display_name = get_identify_by_email(m, auth)
                 if guid is not None:
                     tag = f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
-                    mentions_list.append(tag)
+                    to_mentions_list.append(tag)
                 else:
-                    mentions_list.append(f'<a href="mailto:{m}">@{m}</a>')
+                    to_mentions_list.append(f'<a href="mailto:{m}">@{m}</a>')
 
-            mentions_text = " ".join(mentions_list)
+            to_mentions_text = " ".join(to_mentions_list)
+
+            for m in cc_mentions:
+                guid, display_name = get_identify_by_email(m, auth)
+                if guid is not None:
+                    tag = f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
+                    to_mentions_list.append(tag)
+                else:
+                    to_mentions_list.append(f'<a href="mailto:{m}">@{m}</a>')
+
+            cc_mentions_text = " ".join(to_mentions_list)
+
+
+            
 
             revert_body = [
                 {"op": "add", "path": "/fields/System.State", "value": "In Progress"},
-                {"op": "add", "path": "/fields/System.History", "value": f"<div>❌ <b>Auto Check Failed</b>: {error_msg}<br>{mentions_text}</div>"}
+                {"op": "add", "path": "/fields/System.History", "value": f"<div>{to_mentions_text}<br>❌ <b>Auto Check Failed</b>: {error_msg}<br>{cc_mentions_text}</div>"}
             ]
             requests.patch(wi_url, json=revert_body, auth=auth, headers=headers)
             return "Policy Violated - Work Item Reverted", 200
