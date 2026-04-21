@@ -7,6 +7,8 @@ import urllib.parse
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
+GUID_CACHE = {}
+
 app = Flask(__name__)
 
 # 從環境變數讀取 PAT (安全性考量)
@@ -14,17 +16,19 @@ PAT = os.environ.get("AZURE_PAT")
 ORG_NAME = "quanta01" 
 
 Area_Manager = {
-    "QCIDiag\QCT" : "EasonLin@quantatw.com",
-    "QCIDiag\Amazon" : "Joe_Huang@quantatw.com",
-    "QCIDiag\Google" : "Alex.Lee@quantatw.com",
-    "QCIDiag\Meta" : "Lance.Wu@quantatw.com",
-    "QCIDiag\Msft" : "Wei-Kai.Huang@quantatw.com",
+    r"QCIDiag\QCT" : "EasonLin@quantatw.com",
+    r"QCIDiag\Amazon" : "Joe_Huang@quantatw.com",
+    r"QCIDiag\Google" : "Alex.Lee@quantatw.com",
+    r"QCIDiag\Meta" : "Lance.Wu@quantatw.com",
+    r"QCIDiag\Msft" : "Wei-Kai.Huang@quantatw.com",
 }
 
 My_Email = "chun-yu.chiang@quantatw.com"
 
 def get_guid_by_email(email, auth):
     """透過 Email 查詢 Azure DevOps 內部的 GUID"""
+    if email in GUID_CACHE:
+        return GUID_CACHE[email]
     try:
         url = f"https://vssps.dev.azure.com/{ORG_NAME}/_apis/identities?searchFilter=General&filterValue={email}&api-version=7.1"
         response = requests.get(url, auth=auth)
@@ -32,7 +36,9 @@ def get_guid_by_email(email, auth):
             data = response.json()
             if data['count'] > 0:
                 # 回傳第一個匹配項的 ID
-                return data['value'][0]['id']
+                guid = data['value'][0]['id']
+                GUID_CACHE[email] = guid
+                return guid
     except Exception as e:
         print(f"Error fetching GUID for {email}: {e}")
     return None
@@ -47,23 +53,15 @@ def check_issue_status():
         if not payload or 'resource' not in payload:
             return "Invalid Payload", 400
 
-        try:
-            # get the work item state is changed from old value to new value, if we can get the newValue, then it is a state change
-            resource = payload.get('resource', {})
-            work_item_id = resource.get('workItemId') or resource.get('id')
-            system_state = resource.get('fields', {}).get('System.State')
-            new_state = system_state.get('newValue')
-        except AttributeError as e:
-            print(f"Error getting work item ID {work_item_id} state {new_state}: {e}")
-            return "The stated is not changed", 200
-
-        if not work_item_id:
-            print("Invalid Work Item ID")
-            return "Invalid Work Item ID", 200
+        # get the work item state is changed from old value to new value, if we can get the newValue, then it is a state change
+        resource = payload.get('resource', {})
+        fields = resource.get('fields', {})
+        state_field = fields.get('System.State', {})
+        new_state = state_field.get('newValue') if isinstance(state_field, dict) else None
+        work_item_id = resource.get('workItemId') or resource.get('id')
 
         if new_state not in ['Closed', 'Done']:
-            print(f"DEBUG: new_state is {new_state}")
-            return "Work Item State is not Closed or Done", 200
+            return f"Ignore Item State {new_state}", 200
         
         # 這裡檢查是誰更改的，避免無窮迴圈 (如果是自動化帳號改的就跳過)
         revised_by = payload['resource']['fields'].get('System.ChangedBy', '')
@@ -130,10 +128,11 @@ def check_issue_status():
             mentions_text = ""
             for m in mentions:
                 guid = get_guid_by_email(m, auth)
+                display_name = m.split('@')[0]
                 if guid is not None:
-                    mentions_text += f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}"> @{m}</a> '
+                    mentions_text += f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}"> @{display_name}</a>'
                 else:
-                    mentions_text += f"< a href='mailto:{m}'>@{m}</a> "
+                    mentions_text += f'<a href="mailto:{m}">@{display_name}</a> '
                 
             revert_body = [
                 {"op": "add", "path": "/fields/System.State", "value": "In Progress"},
