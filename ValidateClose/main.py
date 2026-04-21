@@ -88,12 +88,16 @@ def check_issue_status():
         # 這裡檢查是誰更改的，避免無窮迴圈 (如果是自動化帳號改的就跳過)
         assigned_to = wi_fields.get('System.AssignedTo', {})
         owner_email = assigned_to.get('uniqueName', '').lower()
-        changed_by = wi_fields.get('System.ChangedBy').lower()
-        if '<' in changed_by:
-            changed_by = changed_by.split('<')[1].split('>')[0]
+        changed_by = wi_fields.get('System.ChangedBy')
+        if isinstance(changed_by, str):
+            if '<' in changed_by:
+                changed_by = changed_by.split('<')[1].split('>')[0]
+            else:
+                changed_by = changed_by.lower()
+        else: 
+            changed_by = changed_by.get('uniqueName', '').lower().strip()
         
         relations = wi_full.get('relations', [])
-
 
         reasons = []
 
