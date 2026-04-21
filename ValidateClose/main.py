@@ -25,7 +25,7 @@ Area_Manager = {
 
 My_Email = "chun-yu.chiang@quantatw.com"
 
-def get_guid_by_email(email, auth):
+def get_identify_by_email(email, auth):
     """透過 Email 查詢 Azure DevOps 內部的 GUID"""
     if email in GUID_CACHE:
         return GUID_CACHE[email]
@@ -35,13 +35,14 @@ def get_guid_by_email(email, auth):
         if response.status_code == 200:
             data = response.json()
             if data['count'] > 0:
-                # 回傳第一個匹配項的 ID
-                guid = data['value'][0]['id']
-                GUID_CACHE[email] = guid
-                return guid
+                ident = data['value'][0]
+                guid = ident['id']
+                display_name = ident.get('displayName', email.split('@')[0])
+                GUID_CACHE[email] = (guid, display_name)
+                return guid, display_name
     except Exception as e:
         print(f"Error fetching GUID for {email}: {e}")
-    return None
+    return None, None
     
 
 @app.route("/", methods=["POST"])
@@ -128,14 +129,13 @@ def check_issue_status():
             mentions_list = []
 
             for m in mentions:
-                guid = get_guid_by_email(m, auth)
-                display_name = m.split('@')[0]
+                guid, display_name = get_identify_by_email(m, auth)
                 if guid is not None:
                     tag = f'<a href="#" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
                     print(f"DEBUG: Add tag = {tag}", flush=True)
                     mentions_list.append(tag)
                 else:
-                    mentions_list.append(f'<a href="mailto:{m}">@{display_name}</a>')
+                    mentions_list.append(f'<a href="mailto:{m}">@{m}</a>')
 
             mentions_text = " ".join(mentions_list)
 
