@@ -119,24 +119,28 @@ def check_issue_status():
                 reasons.append("No Feature parent issue link")
 
         if reasons:
-            error_msg = "<br>".join(reasons)
-            mentions = [owner_email]
+            error_msg = " | ".join(reasons)
+            mentions = set()
+            mentions.add(owner_email.lower())
             if area_path in Area_Manager:
-                mentions.append(Area_Manager[area_path].lower())
-            mentions.append(My_Email.lower())
-            mentions = set(mentions)
-            mentions_text = ""
+                mentions.add(Area_Manager[area_path].lower())
+            mentions.add(My_Email.lower())
+            mentions_list = []
+
             for m in mentions:
                 guid = get_guid_by_email(m, auth)
                 display_name = m.split('@')[0]
                 if guid is not None:
-                    mentions_text += f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>&nbsp;'
+                    tag = f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
+                    mentions_list.append(tag)
                 else:
-                    mentions_text += f'<a href="mailto:{m}">@{display_name}</a>&nbsp;'
-                
+                    mentions_list.append(f'<a href="mailto:{m}">@{display_name}</a>')
+
+            mentions_text = " ".join(mentions_list)
+
             revert_body = [
                 {"op": "add", "path": "/fields/System.State", "value": "In Progress"},
-                {"op": "add", "path": "/fields/System.History", "value": f"<div>❌ <b>Auto Check Failed</b>: {error_msg}<br><br>{mentions_text}</div>"}
+                {"op": "add", "path": "/fields/System.History", "value": f"<div>❌ <b>Auto Check Failed</b>: {error_msg}<br>{mentions_text}</div>"}
             ]
             requests.patch(wi_url, json=revert_body, auth=auth, headers=headers)
             return "Policy Violated - Work Item Reverted", 200
