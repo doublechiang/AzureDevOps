@@ -73,7 +73,7 @@ def check_issue_status():
         # 1. 取得 Work Item 詳細資料 (包含 Relations)
         wi_url = f"https://dev.azure.com/{ORG_NAME}/_apis/wit/workitems/{work_item_id}?$expand=relations&api-version=7.1"
         wi_response = requests.get(wi_url, auth=auth)
-        print(f"DEBUG: status code = {wi_response.status_code}", flush=True)
+        # print(f"DEBUG: status code = {wi_response.status_code}", flush=True)
         if wi_response.status_code != 200:
             return "Failed to get Work Item details", 200
         wi_full = wi_response.json()
@@ -82,6 +82,7 @@ def check_issue_status():
 
         # Check only specific area path
         if area_path not in Area_Manager:
+            print(f"DEBUG: Ignore Item Area Path {area_path}", flush=True)
             return "Ignore Item Area Path", 200
 
         # 這裡檢查是誰更改的，避免無窮迴圈 (如果是自動化帳號改的就跳過)
