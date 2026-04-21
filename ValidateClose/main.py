@@ -133,40 +133,26 @@ def check_issue_status():
 
         if reasons:
             error_msg = " | ".join(reasons)
-            to_mentions = set()
-            cc_mentions = set()
-            to_mentions.add(owner_email.lower())
-            to_mentions.add(changed_by.lower())
-            cc_mentions.add(My_Email.lower())
+
+            to_mails = {owner_email.lower(), changed_by.lower()}
+            cc_mails = {My_Email.lower()}
             if area_path in Area_Manager:
-                cc_mentions.add(Area_Manager[area_path].lower())
-            cc_mentions.add(My_Email.lower())
+                cc_mails.add(Area_Manager[area_path].lower())
+            cc_mails = cc_mails - to_mails
 
-            to_mentions_list = []
-            cc_mentions_list = []
-
-            for m in to_mentions:
-                guid, display_name = get_identify_by_email(m, auth)
-                if guid is not None:
-                    tag = f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
-                    to_mentions_list.append(tag)
-                else:
-                    to_mentions_list.append(f'<a href="mailto:{m}">@{m}</a>')
-
-            to_mentions_text = " ".join(to_mentions_list)
-
-            for m in cc_mentions:
-                guid, display_name = get_identify_by_email(m, auth)
-                if guid is not None:
-                    tag = f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
-                    to_mentions_list.append(tag)
-                else:
-                    to_mentions_list.append(f'<a href="mailto:{m}">@{m}</a>')
-
-            cc_mentions_text = " ".join(to_mentions_list)
-
-
-            
+            def build_mention_tags(mails):
+                tags = []
+                for m in mails:
+                    guid, display_name = get_identify_by_email(m, auth)
+                    if guid is not None:
+                        tag = f'<a href="mailto:{m}" data-vss-mention="version:2.0,guid:{guid}">@{display_name}</a>'
+                        tags.append(tag)
+                    else:
+                        tags.append(f'<a href="mailto:{m}">@{m}</a>')
+                return " ".join(tags)
+                
+            to_mentions_text = build_mention_tags(to_mails)
+            cc_mentions_text = build_mention_tags(cc_mails)
 
             revert_body = [
                 {"op": "add", "path": "/fields/System.State", "value": "In Progress"},
