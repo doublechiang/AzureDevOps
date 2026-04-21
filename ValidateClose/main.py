@@ -51,9 +51,10 @@ def check_issue_status():
             # get the work item state is changed from old value to new value, if we can get the newValue, then it is a state change
             resource = payload.get('resource', {})
             work_item_id = resource.get('workItemId') or resource.get('id')
-            new_state = resource.get('fields', {}).get('System.State').get('newValue')
+            system_state = resource.get('fields', {}).get('System.State')
+            new_state = system_state.get('newValue')
         except AttributeError as e:
-            print(f"Error getting work item ID: {e}")
+            print(f"Error getting work item ID {work_item_id} state {new_state}: {e}")
             return "The stated is not changed", 200
 
         if not work_item_id:
@@ -90,7 +91,6 @@ def check_issue_status():
         
 
         # If there is a PR, check if it is completed
-        active_pr_found = False
         pr_completed = False
 
         pr_links = [r['url'] for r in relations if 'PullRequestId' in r['url']]
@@ -101,7 +101,7 @@ def check_issue_status():
             pr_data = requests.get(pr_api, auth=auth).json()
             pr_status = pr_data['status']
             if pr_status == 'active':
-                active_pr_found = True
+                # if the PR is active, then we can not close the issue
                 reasons.append(f"Active PR found, You need to close PR {pr_id} then close issue.")  
                 break
             if pr_status == 'completed':
