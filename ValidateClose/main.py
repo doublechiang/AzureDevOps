@@ -67,7 +67,7 @@ def check_issue_status():
 
         # if it's feature or epic type, then ignore it
         work_item_type = fields.get('System.WorkItemType', {})
-        if work_item_type not in ['Feature', 'Epic']:
+        if work_item_type in ['Feature', 'Epic']:
             return f"Ignore Item Type {work_item_type}", 200
             
         state_field = fields.get('System.State', {})
