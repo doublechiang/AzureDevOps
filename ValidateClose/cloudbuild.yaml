@@ -1,0 +1,25 @@
+steps:
+  # 1. Build Docker Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/azure-devops-validator:$COMMIT_SHA', '.']
+
+  # 2. Push Image to Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/azure-devops-validator:$COMMIT_SHA']
+
+  # 3. Deploy to Cloud Run (這步就是你現在手動在做的事)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'azure-devops-validator' # 你的 Cloud Run 服務名稱
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/azure-devops-validator:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1' # 你的 Region
+      - '--platform'
+      - 'managed'
+
+images:
+  - 'gcr.io/$PROJECT_ID/azure-devops-validator:$COMMIT_SHA'
