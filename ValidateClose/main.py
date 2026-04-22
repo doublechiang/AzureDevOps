@@ -21,9 +21,9 @@ ORG_NAME = "quanta01"
 
 Area_Manager = {
     r"QCIDiag\QCT" : "EasonLin@quantatw.com",
-    # r"QCIDiag\Amazon" : "Joe_Huang@quantatw.com",
+    r"QCIDiag\Amazon" : "Joe_Huang@quantatw.com",
     # r"QCIDiag\Google" : "Alex.Lee@quantatw.com",
-    # r"QCIDiag\Meta" : "Lance.Wu@quantatw.com",
+    r"QCIDiag\Meta" : "Lance.Wu@quantatw.com",
     r"QCIDiag\Msft" : "Wei-Kai.Huang@quantatw.com",
     r"TE_Test" : "chun-yu.chiang@quantatw.com",
 }
@@ -67,7 +67,7 @@ def check_issue_status():
 
         # if it's feature or epic type, then ignore it
         work_item_type = fields.get('System.WorkItemType', {})
-        if work_item_type in ['Feature', 'Epic']:
+        if work_item_type in ['Epic']:
             return f"Ignore Item Type {work_item_type}", 200
             
         state_field = fields.get('System.State', {})
@@ -96,6 +96,11 @@ def check_issue_status():
         if area_path not in Area_Manager:
             logger.debug(f"Ignore Item Area Path {area_path}")
             return "Ignore Item Area Path", 200
+
+        tags_str = wi_fields.get('System.Tags', "")
+        tags_list = [t.strip() for t in tags_str.split(';')] if tags_str else []
+        if 'Meta' in area_path and 'FAVA' in tags_list:
+            return "No need validate Meta FAVA close issues", 200
 
         # 這裡檢查是誰更改的，避免無窮迴圈 (如果是自動化帳號改的就跳過)
         assigned_to = wi_fields.get('System.AssignedTo', {})
@@ -130,18 +135,19 @@ def check_issue_status():
             if pr_status == 'completed':
                 pr_completed = True
 
-        # if there is any completed PR, then check if there is a parent feature
-        if pr_completed:
-            has_feature_parent = False
-            for rel in relations:
-                if rel['attributes'].get('name') == 'Parent':
-                    p_url = rel['url']
-                    p_data = requests.get(p_url, auth=auth).json()
-                    if p_data['fields'].get('System.WorkItemType') == 'Feature':
-                        has_feature_parent = True
-                        break
-            if not has_feature_parent:
-                reasons.append("No Feature parent issue link")
+        # Other issue is not a Feature, then it needs to have a feature parent
+        if work_item_type not in ['Feature']:
+            if pr_completed:
+                has_feature_parent = False
+                for rel in relations:
+                    if rel['attributes'].get('name') == 'Parent':
+                        p_url = rel['url']
+                        p_data = requests.get(p_url, auth=auth).json()
+                        if p_data['fields'].get('System.WorkItemType') == 'Feature':
+                            has_feature_parent = True
+                            break
+                if not has_feature_parent:
+                    reasons.append("No Feature parent issue link")
 
         if reasons:
             error_msg = " | ".join(reasons)
