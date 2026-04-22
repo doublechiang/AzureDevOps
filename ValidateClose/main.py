@@ -152,6 +152,8 @@ def check_issue_status():
         if reasons:
             error_msg = " | ".join(reasons)
 
+            revert_state = "Active" if work_item_type in ['Feature'] else "In Progress"
+
             to_mails = {owner_email.lower(), changed_by.lower()}
             cc_mails = {My_Email.lower()}
             if area_path in Area_Manager:
@@ -173,10 +175,13 @@ def check_issue_status():
             cc_mentions_text = build_mention_tags(cc_mails)
 
             revert_body = [
-                {"op": "add", "path": "/fields/System.State", "value": "In Progress"},
+                {"op": "add", "path": "/fields/System.State", "value": revert_state},
                 {"op": "add", "path": "/fields/System.History", "value": f"<div>{to_mentions_text}<br>❌ <b>Auto Check Failed</b>: {error_msg}<br>{cc_mentions_text}</div>"}
             ]
-            requests.patch(wi_url, json=revert_body, auth=auth, headers=headers)
+            patch_response = requests.patch(wi_url, json=revert_body, auth=auth, headers=headers)
+            if patch_response.status_code != 200:
+                logger.error(f"Failed to revert Work Item {work_item_id} : revert_to: {revert_state} {patch_response.text}")
+                return "Failed to revert Work Item", 200
             logger.debug("Policy Violated - Work Item Reverted")
             return "Policy Violated - Work Item Reverted", 200
 
