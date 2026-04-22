@@ -13,11 +13,11 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'azure-devops-validator' # 你的 Cloud Run 服務名稱
+      - 'validate-close' # 你的 Cloud Run 服務名稱
       - '--image'
-      - 'gcr.io/$PROJECT_ID/azure-devops-validator:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/validate-close:$COMMIT_SHA'
       - '--region'
-      - 'us-central1' # 你的 Region
+      - 'asia-east1' # 你的 Region
       - '--platform'
       - 'managed'
 
