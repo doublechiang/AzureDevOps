@@ -3,6 +3,10 @@ import requests
 from flask import Flask, request
 import sys
 import urllib.parse
+import logging
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', flush=True)
+logger=logging.getLogger(__name__)
 
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -59,7 +63,7 @@ def check_issue_status():
         # get the work item state is changed from old value to new value, if we can get the newValue, then it is a state change
         resource = payload.get('resource', {})
         fields = resource.get('fields', {})
-        print(f"DEBUG: Received workitem update for {resource['workItemId']}", flush=True)
+        logger.debug(f"Received workitem update for {resource['workItemId']}")
 
         # if it's feature or epic type, then ignore it
         work_item_type = fields.get('System.WorkItemType', {})
@@ -82,6 +86,7 @@ def check_issue_status():
         wi_response = requests.get(wi_url, auth=auth)
         # print(f"DEBUG: status code = {wi_response.status_code}", flush=True)
         if wi_response.status_code != 200:
+            logger.error(f"Failed to get Work Item details {work_item_id}")
             return "Failed to get Work Item details", 200
         wi_full = wi_response.json()
         wi_fields = wi_full.get('fields', {})
@@ -89,7 +94,7 @@ def check_issue_status():
 
         # Check only specific area path
         if area_path not in Area_Manager:
-            print(f"DEBUG: Ignore Item Area Path {area_path}", flush=True)
+            logger.debug(f"Ignore Item Area Path {area_path}")
             return "Ignore Item Area Path", 200
 
         # 這裡檢查是誰更改的，避免無窮迴圈 (如果是自動化帳號改的就跳過)
@@ -166,8 +171,10 @@ def check_issue_status():
                 {"op": "add", "path": "/fields/System.History", "value": f"<div>{to_mentions_text}<br>❌ <b>Auto Check Failed</b>: {error_msg}<br>{cc_mentions_text}</div>"}
             ]
             requests.patch(wi_url, json=revert_body, auth=auth, headers=headers)
+            logger.debug("Policy Violated - Work Item Reverted")
             return "Policy Violated - Work Item Reverted", 200
 
+        logger.debug("Policy Passed")
         return "Policy Passed", 200
     except Exception as e:
         print(f"Error: {str(e)}")
