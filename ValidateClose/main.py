@@ -22,7 +22,8 @@ ORG_NAME = "quanta01"
 Area_Manager = {
     r"QCIDiag\QCT" : "EasonLin@quantatw.com",
     r"QCIDiag\Amazon" : "Joe_Huang@quantatw.com",
-    # r"QCIDiag\Google" : "Alex.Lee@quantatw.com",
+    r"QCIDiag\Google" : "Alex.Lee@quantatw.com",
+    r"QCIDiag\Oracle" : "Alex.Lee@quantatw.com",
     r"QCIDiag\Meta" : "Lance.Wu@quantatw.com",
     r"QCIDiag\Msft" : "Wei-Kai.Huang@quantatw.com",
     r"TE_Test" : "chun-yu.chiang@quantatw.com",
