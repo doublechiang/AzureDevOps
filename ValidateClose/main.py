@@ -5,7 +5,7 @@ import sys
 import urllib.parse
 import logging
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', flush=True)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger=logging.getLogger(__name__)
 
 sys.stdout.reconfigure(line_buffering=True)
