@@ -52,13 +52,14 @@ def check_issue_status():
     try:
 
         payload = request.json
-        print((f"Payload: {payload}"))
+        # print((f"Payload: {payload}"))
         if not payload or 'resource' not in payload:
             return "Invalid Payload", 400
 
         # get the work item state is changed from old value to new value, if we can get the newValue, then it is a state change
         resource = payload.get('resource', {})
         fields = resource.get('fields', {})
+        print(f"DEBUG: Received workitem update for {resource['workItemId']}", flush=True)
 
         # if it's feature or epic type, then ignore it
         work_item_type = fields.get('System.WorkItemType', {})
