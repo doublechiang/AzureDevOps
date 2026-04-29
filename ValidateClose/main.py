@@ -5,7 +5,8 @@ import sys
 import urllib.parse
 import logging
 
-logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger=logging.getLogger(__name__)
 
 sys.stdout.reconfigure(line_buffering=True)
@@ -180,7 +181,7 @@ def check_issue_status():
             for revert_state in possible_revert_state:
                 revert_body = [
                     {"op": "add", "path": "/fields/System.State", "value": revert_state},
-                    {"op": "add", "path": "/fields/System.AssignedTo", "value": owner_email},
+                    {"op": "add", "path": "/fields/System.AssignedTo", "value": assigned_to.get('uniqueName', '')},
                     {"op": "add", "path": "/fields/System.History", "value": f"<div>{to_mentions_text}<br>❌ <b>Auto Check Failed</b>: {error_msg}<br>{cc_mentions_text}</div>"}
                 ]
                 patch_response = requests.patch(wi_url, json=revert_body, auth=auth, headers=headers)
