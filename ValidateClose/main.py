@@ -5,7 +5,7 @@ import sys
 import urllib.parse
 import logging
 
-logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger=logging.getLogger(__name__)
 
 sys.stdout.reconfigure(line_buffering=True)
@@ -64,10 +64,10 @@ def check_issue_status():
         # get the work item state is changed from old value to new value, if we can get the newValue, then it is a state change
         resource = payload.get('resource', {})
         fields = resource.get('fields', {})
-        logger.debug(f"Received workitem update for {resource['workItemId']}")
 
         # if it's feature or epic type, then ignore it
         work_item_type = fields.get('System.WorkItemType', {})
+        logger.debug(f"Received workitem update for {resource['workItemId']} with Type {work_item_type}")
         if work_item_type in ['Epic']:
             return f"Ignore Item Type {work_item_type}", 200
             
@@ -136,7 +136,7 @@ def check_issue_status():
             if pr_status == 'completed':
                 pr_completed = True
 
-        # Other issue is not a Feature, then it needs to have a feature parent
+        # if the issue is not a Feature, then it must have a feature parent
         if work_item_type not in ['Feature']:
             if pr_completed:
                 has_feature_parent = False
