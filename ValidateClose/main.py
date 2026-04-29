@@ -153,7 +153,7 @@ def check_issue_status():
         if reasons:
             error_msg = " | ".join(reasons)
 
-            revert_state = "Active" if work_item_type in ['Feature'] else "In Progress"
+            revert_state = "Active" if work_item_type in ['Feature', 'Change Request'] else "In Progress"
 
             to_mails = {owner_email.lower(), changed_by.lower()}
             cc_mails = {My_Email.lower()}
