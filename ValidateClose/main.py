@@ -92,6 +92,8 @@ def check_issue_status():
         wi_full = wi_response.json()
         wi_fields = wi_full.get('fields', {})
         area_path = wi_fields.get('System.AreaPath', '')
+        # request resource may not get complete type, update the type from wi_fields
+        work_item_type = wi_fields.get('System.WorkItemType', '')
 
         # Check only specific area path
         if area_path not in Area_Manager:
