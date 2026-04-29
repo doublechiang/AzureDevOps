@@ -178,16 +178,19 @@ def check_issue_status():
             for revert_state in possible_revert_state:
                 revert_body = [
                     {"op": "add", "path": "/fields/System.State", "value": revert_state},
+                    {"op": "add", "path": "/fields/System.AssignedTo", "value": owner_email},
                     {"op": "add", "path": "/fields/System.History", "value": f"<div>{to_mentions_text}<br>❌ <b>Auto Check Failed</b>: {error_msg}<br>{cc_mentions_text}</div>"}
                 ]
                 patch_response = requests.patch(wi_url, json=revert_body, auth=auth, headers=headers)
+                if patch_response.status_code == 400:
+                    logger.info(f"Failed to revert Work Item, status_code:{patch_response.status_code} , WI: {work_item_id} : revert_to: {revert_state} {patch_response.text}")
+                    continue                    
                 if patch_response.status_code == 200:
-                    logger.debug("Policy Violated - Work Item Reverted")
-                    return "Policy Violated - Work Item Reverted", 200
-                else:
-                    logger.error(f"Failed to revert Work Item, status_code:{patch_response.status_code} , WI: {work_item_id} : revert_to: {revert_state} {patch_response.text}")
-            logger.error(f"Failed to revert Work Item, status_code:{patch_response.status_code} , WI: {work_item_id} : revert_to: {revert_state} {patch_response.text}")
-            return "Failed to revert Work Item", 200
+                    logger.debug(f"Policy Violated - Work Item Reverted: {work_item_id} to {revert_state}")
+                    break
+                
+            logger.info(f"Revert fail: {work_item_id}, message: {error_msg}")
+            return f"Revert fail: {work_item_id}, message: {error_msg}", 200
 
         logger.debug("Policy Passed")
         return "Policy Passed", 200
