@@ -27,6 +27,7 @@ Area_Manager = {
     r"QCIDiag\Oracle" : "Alex.Lee@quantatw.com",
     r"QCIDiag\Meta" : "Lance.Wu@quantatw.com",
     r"QCIDiag\Msft" : "Wei-Kai.Huang@quantatw.com",
+    r"QCIDiag\Diaglib" : "chun-yu.chiang@quantatw.com",
     r"TE_Test" : "chun-yu.chiang@quantatw.com",
 }
 
