@@ -2,8 +2,11 @@ import os
 import requests
 from flask import Flask, request
 import sys
+import re
+import time
 import urllib.parse
 import logging
+from datetime import datetime, timedelta
 
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -32,6 +35,165 @@ Area_Manager = {
 }
 
 My_Email = "chun-yu.chiang@quantatw.com"
+
+# The MFG-notification rule only applies to releases for these Diag customer areas
+# (per the close-criteria spec). Diaglib / TE_Test etc. are internal and exempt.
+RELEASE_CUSTOMER_AREAS = (
+    r"QCIDiag\QCT",
+    r"QCIDiag\Oracle",
+    r"QCIDiag\Meta",
+    r"QCIDiag\Msft",
+    r"QCIDiag\Amazon",
+    r"QCIDiag\Google",
+)
+
+# How fresh the MFG tag must be relative to the closure date.
+MFG_TAG_WINDOW = timedelta(days=1)
+
+
+def is_release_customer_area(area_path):
+    return any(area_path == a or area_path.startswith(a + "\\") for a in RELEASE_CUSTOMER_AREAS)
+
+
+def parse_ado_datetime(s):
+    """Parse an ADO ISO-8601 UTC timestamp (e.g. '2026-06-21T22:52:58.14Z') to a
+    naive UTC datetime. Fractional seconds and the trailing 'Z' are dropped; all
+    ADO timestamps are UTC, so comparisons stay consistent."""
+    if not s:
+        return None
+    try:
+        base = s.split('.')[0].rstrip('Z').split('+')[0]
+        return datetime.strptime(base, "%Y-%m-%dT%H:%M:%S")
+    except (ValueError, AttributeError):
+        return None
+
+
+# MFG (factory-side) TE groups. When a Feature (= a release) is closed, at least
+# one member of these groups must be @mentioned somewhere on the work item, so
+# engineers build the habit of notifying the factory instead of only tagging our
+# own department (QCI TE, deliberately NOT listed here). Group descriptors are
+# stable; look up a new one via:
+#   GET https://vssps.dev.azure.com/{org}/_apis/graph/groups (paginate + match displayName)
+MFG_TE_GROUPS = {
+    "QCG TE": "vssgp.Uy0xLTktMTU1MTM3NDI0NS00MjQ1MTY2MzU3LTc3Njk0Mjg1LTIzNTE2ODMyODAtNDU4ODgyNjI5LTEtMTAyMzgzOTA3Ni03OTE2MjcwODYtMjUxMDA0NzUyOC0yNjIzMDE2NjM2",
+    "QMF TE": "vssgp.Uy0xLTktMTU1MTM3NDI0NS00MjQ1MTY2MzU3LTc3Njk0Mjg1LTIzNTE2ODMyODAtNDU4ODgyNjI5LTEtMjA4MzAxMzE3MC00MjE3Njk1ODEwLTI5MjY5NzAyNzMtMzI4Mjc5MTUxMg",
+    "QMN TE": "vssgp.Uy0xLTktMTU1MTM3NDI0NS00MjQ1MTY2MzU3LTc3Njk0Mjg1LTIzNTE2ODMyODAtNDU4ODgyNjI5LTEtMTIyNzk0NzU1NC0xNjA1MzM5MjE1LTI0NTc3ODA4OTQtMzQ0NTI5OTAyMQ",
+    "QTMC TE": "vssgp.Uy0xLTktMTU1MTM3NDI0NS00MjQ1MTY2MzU3LTc3Njk0Mjg1LTIzNTE2ODMyODAtNDU4ODgyNjI5LTEtMTY5NTk5OTcwOC0xMDQwNDc0Njk5LTI3MTQ4Nzc1MzMtMjQ2MTQ3MzA",
+}
+
+MENTION_RE = re.compile(r'data-vss-mention="version:2\.0,([0-9a-fA-F-]+)"')
+
+# A formal release is submitted to Quanta VRC (Version Release Control), which
+# yields a 6-digit VRCID pointing to the released resource. Engineers record it
+# free-text on the work item (e.g. "VRCID#335928"). Match is intentionally STRICT:
+# the single canonical token "VRCID" (case-insensitive) + a 6-digit id, so the team
+# standardises on one spelling. Anything else ("VRDID", "VRC ID", ...) will NOT
+# match, reads as "no release", and the close is left alone; the engineer is
+# expected to write it correctly. Presence of a VRCID = a real release, and only
+# then must MFG be notified.
+VRCID_RE = re.compile(r'VRCID\s*[#:]?\s*(\d{6})(?!\d)', re.IGNORECASE)
+
+# Cache the resolved MFG member GUID set per instance; refresh daily.
+_MFG_CACHE = {"guids": set(), "ts": 0.0}
+_MFG_CACHE_TTL = 24 * 3600
+
+
+def get_mfg_te_member_guids(auth):
+    """Return the set of identity GUIDs (lowercased) of all MFG TE members.
+
+    The GUIDs match the id used in `data-vss-mention="version:2.0,<GUID>"`.
+    """
+    now = time.time()
+    if _MFG_CACHE["guids"] and (now - _MFG_CACHE["ts"]) < _MFG_CACHE_TTL:
+        return _MFG_CACHE["guids"]
+
+    descriptors = []
+    for name, group_desc in MFG_TE_GROUPS.items():
+        url = (f"https://vssps.dev.azure.com/{ORG_NAME}/_apis/graph/memberships/"
+               f"{group_desc}?direction=down&api-version=7.1-preview.1")
+        resp = requests.get(url, auth=auth)
+        if resp.status_code != 200:
+            logger.error(f"Failed to list members of MFG group {name}: {resp.status_code}")
+            continue
+        for m in resp.json().get("value", []):
+            member = m.get("memberDescriptor", "")
+            # aad./msa. = a person; vssgp. = a nested group (skip; groups can't be mentioned)
+            if member.startswith(("aad.", "msa.")):
+                descriptors.append(member)
+
+    guids = set()
+    for i in range(0, len(descriptors), 20):  # keep the query string short enough
+        batch = urllib.parse.quote(",".join(descriptors[i:i + 20]))
+        url = (f"https://vssps.dev.azure.com/{ORG_NAME}/_apis/identities"
+               f"?subjectDescriptors={batch}&api-version=7.1")
+        resp = requests.get(url, auth=auth)
+        if resp.status_code == 200:
+            for ident in resp.json().get("value", []):
+                if ident.get("id"):
+                    guids.add(ident["id"].lower())
+
+    if guids:  # only cache a successful, non-empty resolution
+        _MFG_CACHE["guids"] = guids
+        _MFG_CACHE["ts"] = now
+    return guids
+
+
+def get_release_signals(work_item_id, wi_fields, auth):
+    """Read the work item's revision history once and derive two things:
+
+    - combined_text: Description + every discussion comment, used to detect a VRCID.
+    - mention_events: list of (datetime, guids) recording WHEN each @mention was
+      added, so we can check the "tagged within one day of closure" rule.
+      Discussion (History) mentions are timed at the comment's revision; Description
+      mentions are timed at the first revision they appear in (not on every re-save).
+    """
+    project = urllib.parse.quote(wi_fields.get("System.TeamProject", ""))
+    url = (f"https://dev.azure.com/{ORG_NAME}/{project}/_apis/wit/workitems/"
+           f"{work_item_id}/updates?api-version=7.0")
+    resp = requests.get(url, auth=auth)
+    texts = [wi_fields.get("System.Description", "") or ""]
+    mention_events = []
+    if resp.status_code != 200:
+        logger.error(f"Failed to get updates for {work_item_id}: {resp.status_code}")
+        combined = "\n".join(texts)
+        return combined, mention_events
+
+    updates = sorted(resp.json().get("value", []), key=lambda u: u.get("rev", 0))
+    seen_desc = set()  # GUIDs already present in a prior Description revision
+    for u in updates:
+        f = u.get("fields", {}) or {}
+        ts = parse_ado_datetime((f.get("System.ChangedDate", {}) or {}).get("newValue"))
+        event_guids = set()
+
+        hist = (f.get("System.History", {}) or {}).get("newValue")
+        if hist:
+            texts.append(hist)
+            event_guids |= set(g.lower() for g in MENTION_RE.findall(hist))  # each comment = a fresh notification
+
+        desc = (f.get("System.Description", {}) or {}).get("newValue")
+        if desc:
+            texts.append(desc)
+            desc_guids = set(g.lower() for g in MENTION_RE.findall(desc))
+            event_guids |= (desc_guids - seen_desc)  # only count newly-added description mentions
+            seen_desc |= desc_guids
+
+        if ts and event_guids:
+            mention_events.append((ts, event_guids))
+
+    combined = "\n".join(texts)
+    return combined, mention_events
+
+
+def mfg_tagged_within_window(mention_events, mfg_guids, close_time):
+    """True if any MFG TE member was @mentioned within MFG_TAG_WINDOW of close_time."""
+    if close_time is None:
+        # Can't establish the closure time -> be lenient and accept any MFG mention.
+        return any(guids & mfg_guids for _, guids in mention_events)
+    return any(
+        (guids & mfg_guids) and abs(ts - close_time) <= MFG_TAG_WINDOW
+        for ts, guids in mention_events
+    )
+
 
 def get_identify_by_email(email, auth):
     """透過 Email 查詢 Azure DevOps 內部的 GUID"""
@@ -153,6 +315,25 @@ def check_issue_status():
                             break
                 if not has_feature_parent:
                     reasons.append("No Feature parent issue link")
+
+        # Feature release close-criteria (per work item 40159): for the Diag
+        # customer areas only, if a VRCID was mentioned (description or comments)
+        # this is a formal release, so at least one MFG TE must have been tagged
+        # within one day of the closure date. Closing without a VRCID (= no
+        # release) or in a non-customer area is left alone.
+        if work_item_type == 'Feature' and is_release_customer_area(area_path):
+            content_text, mention_events = get_release_signals(work_item_id, wi_fields, auth)
+            vrcid_match = VRCID_RE.search(content_text)
+            if vrcid_match:
+                mfg_guids = get_mfg_te_member_guids(auth)
+                close_time = parse_ado_datetime(
+                    wi_fields.get('Microsoft.VSTS.Common.ClosedDate')
+                    or wi_fields.get('Microsoft.VSTS.Common.StateChangeDate')
+                    or wi_fields.get('System.ChangedDate'))
+                if mfg_guids and not mfg_tagged_within_window(mention_events, mfg_guids, close_time):
+                    reasons.append(f"Release {vrcid_match.group(0)} not notified to MFG. Please "
+                                   "@mention at least one MFG TE (QCG/QMF/QMN/QTMC TE) member "
+                                   "within one day of closing this Feature.")
 
         if reasons:
             error_msg = " | ".join(reasons)
