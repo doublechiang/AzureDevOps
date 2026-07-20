@@ -50,6 +50,11 @@ RELEASE_CUSTOMER_AREAS = (
 # How fresh the MFG tag must be relative to the closure date.
 MFG_TAG_WINDOW = timedelta(days=1)
 
+# A release can be abandoned with rationale; those closes carry one of these
+# reasons and are exempt from the MFG-notification check even if a VRCID exists
+# (e.g. a build was submitted to VRC and then the release was dropped).
+ABANDON_REASONS = {"Rejected", "Removed"}
+
 
 def is_release_customer_area(area_path):
     return any(area_path == a or area_path.startswith(a + "\\") for a in RELEASE_CUSTOMER_AREAS)
@@ -85,13 +90,12 @@ MENTION_RE = re.compile(r'data-vss-mention="version:2\.0,([0-9a-fA-F-]+)"')
 
 # A formal release is submitted to Quanta VRC (Version Release Control), which
 # yields a 6-digit VRCID pointing to the released resource. Engineers record it
-# free-text on the work item (e.g. "VRCID#335928"). Match is intentionally STRICT:
-# the single canonical token "VRCID" (case-insensitive) + a 6-digit id, so the team
-# standardises on one spelling. Anything else ("VRDID", "VRC ID", ...) will NOT
-# match, reads as "no release", and the close is left alone; the engineer is
-# expected to write it correctly. Presence of a VRCID = a real release, and only
+# free-text on the work item; in practice both "VRCID#335928" and the shorthand
+# "VRC#335928" are common, so accept either "VRC" or "VRCID" (case-insensitive) +
+# a 6-digit id. Still strict enough to reject typos ("VRDID") and stray 6-digit
+# numbers (e.g. emoji codepoints). Presence of a VRCID = a real release, and only
 # then must MFG be notified.
-VRCID_RE = re.compile(r'VRCID\s*[#:]?\s*(\d{6})(?!\d)', re.IGNORECASE)
+VRCID_RE = re.compile(r'VRC(?:ID)?\s*[#:]?\s*(\d{6})(?!\d)', re.IGNORECASE)
 
 # Cache the resolved MFG member GUID set per instance; refresh daily.
 _MFG_CACHE = {"guids": set(), "ts": 0.0}
@@ -320,8 +324,11 @@ def check_issue_status():
         # customer areas only, if a VRCID was mentioned (description or comments)
         # this is a formal release, so at least one MFG TE must have been tagged
         # within one day of the closure date. Closing without a VRCID (= no
-        # release) or in a non-customer area is left alone.
-        if work_item_type == 'Feature' and is_release_customer_area(area_path):
+        # release), in a non-customer area, or as an abandoned release
+        # (Rejected/Removed) is left alone.
+        if (work_item_type == 'Feature'
+                and is_release_customer_area(area_path)
+                and wi_fields.get('System.Reason') not in ABANDON_REASONS):
             content_text, mention_events = get_release_signals(work_item_id, wi_fields, auth)
             vrcid_match = VRCID_RE.search(content_text)
             if vrcid_match:
