@@ -86,7 +86,16 @@ MFG_TE_GROUPS = {
     "QTMC TE": "vssgp.Uy0xLTktMTU1MTM3NDI0NS00MjQ1MTY2MzU3LTc3Njk0Mjg1LTIzNTE2ODMyODAtNDU4ODgyNjI5LTEtMTY5NTk5OTcwOC0xMDQwNDc0Njk5LTI3MTQ4Nzc1MzMtMjQ2MTQ3MzA",
 }
 
-MENTION_RE = re.compile(r'data-vss-mention="version:2\.0,([0-9a-fA-F-]+)"')
+# @mentions appear in TWO encodings depending on the API/source: the rendered
+# HTML form `data-vss-mention="version:2.0,<GUID>"` and the raw comment form
+# `@<GUID>`. Match both, or comment mentions get silently missed.
+MENTION_RE = re.compile(r'data-vss-mention="version:2\.0,([0-9a-fA-F-]+)"'
+                        r'|@<([0-9A-Fa-f-]{36})>')
+
+
+def extract_mention_guids(text):
+    """Set of lowercased identity GUIDs @mentioned in the given text (both encodings)."""
+    return set((a or b).lower() for a, b in MENTION_RE.findall(text or ""))
 
 # A formal release is submitted to Quanta VRC (Version Release Control), which
 # yields a 6-digit VRCID pointing to the released resource. Engineers record it
@@ -102,13 +111,15 @@ _MFG_CACHE = {"guids": set(), "ts": 0.0}
 _MFG_CACHE_TTL = 24 * 3600
 
 
-def get_mfg_te_member_guids(auth):
+def get_mfg_te_member_guids(auth, force_refresh=False):
     """Return the set of identity GUIDs (lowercased) of all MFG TE members.
 
     The GUIDs match the id used in `data-vss-mention="version:2.0,<GUID>"`.
+    Pass force_refresh=True to bypass the cache (e.g. a member was just added to a
+    group and the cached set may be stale).
     """
     now = time.time()
-    if _MFG_CACHE["guids"] and (now - _MFG_CACHE["ts"]) < _MFG_CACHE_TTL:
+    if not force_refresh and _MFG_CACHE["guids"] and (now - _MFG_CACHE["ts"]) < _MFG_CACHE_TTL:
         return _MFG_CACHE["guids"]
 
     descriptors = []
@@ -143,46 +154,55 @@ def get_mfg_te_member_guids(auth):
 
 
 def get_release_signals(work_item_id, wi_fields, auth):
-    """Read the work item's revision history once and derive two things:
+    """Derive two things for the release close-criteria:
 
     - combined_text: Description + every discussion comment, used to detect a VRCID.
     - mention_events: list of (datetime, guids) recording WHEN each @mention was
       added, so we can check the "tagged within one day of closure" rule.
-      Discussion (History) mentions are timed at the comment's revision; Description
-      mentions are timed at the first revision they appear in (not on every re-save).
+
+    Comments (the channel people actually use to tag/notify) come from the
+    comments API, which is complete and carries per-comment timestamps -- the
+    /updates revisions feed does NOT reliably contain recent comments. Description
+    mentions are timed at the first revision they appear in (not on every re-save).
     """
     project = urllib.parse.quote(wi_fields.get("System.TeamProject", ""))
-    url = (f"https://dev.azure.com/{ORG_NAME}/{project}/_apis/wit/workitems/"
-           f"{work_item_id}/updates?api-version=7.0")
-    resp = requests.get(url, auth=auth)
     texts = [wi_fields.get("System.Description", "") or ""]
     mention_events = []
-    if resp.status_code != 200:
-        logger.error(f"Failed to get updates for {work_item_id}: {resp.status_code}")
-        combined = "\n".join(texts)
-        return combined, mention_events
 
-    updates = sorted(resp.json().get("value", []), key=lambda u: u.get("rev", 0))
-    seen_desc = set()  # GUIDs already present in a prior Description revision
-    for u in updates:
-        f = u.get("fields", {}) or {}
-        ts = parse_ado_datetime((f.get("System.ChangedDate", {}) or {}).get("newValue"))
-        event_guids = set()
+    # 1) Comments: text + createdDate, mentions in either encoding.
+    curl = (f"https://dev.azure.com/{ORG_NAME}/{project}/_apis/wit/workitems/"
+            f"{work_item_id}/comments?api-version=7.1-preview.4")
+    cresp = requests.get(curl, auth=auth)
+    if cresp.status_code == 200:
+        for c in cresp.json().get("comments", []):
+            text = c.get("text", "") or ""
+            texts.append(text)
+            ts = parse_ado_datetime(c.get("createdDate"))
+            guids = extract_mention_guids(text)
+            if ts and guids:
+                mention_events.append((ts, guids))
+    else:
+        logger.error(f"Failed to get comments for {work_item_id}: {cresp.status_code}")
 
-        hist = (f.get("System.History", {}) or {}).get("newValue")
-        if hist:
-            texts.append(hist)
-            event_guids |= set(g.lower() for g in MENTION_RE.findall(hist))  # each comment = a fresh notification
-
-        desc = (f.get("System.Description", {}) or {}).get("newValue")
-        if desc:
+    # 2) Description mentions, timed at first appearance via the revisions feed.
+    uurl = (f"https://dev.azure.com/{ORG_NAME}/{project}/_apis/wit/workitems/"
+            f"{work_item_id}/updates?api-version=7.0")
+    uresp = requests.get(uurl, auth=auth)
+    if uresp.status_code == 200:
+        seen_desc = set()
+        for u in sorted(uresp.json().get("value", []), key=lambda x: x.get("rev", 0)):
+            desc = ((u.get("fields", {}) or {}).get("System.Description", {}) or {}).get("newValue")
+            if not desc:
+                continue
             texts.append(desc)
-            desc_guids = set(g.lower() for g in MENTION_RE.findall(desc))
-            event_guids |= (desc_guids - seen_desc)  # only count newly-added description mentions
-            seen_desc |= desc_guids
-
-        if ts and event_guids:
-            mention_events.append((ts, event_guids))
+            guids = extract_mention_guids(desc)
+            new = guids - seen_desc
+            seen_desc |= guids
+            ts = parse_ado_datetime(((u.get("fields", {}) or {}).get("System.ChangedDate", {}) or {}).get("newValue"))
+            if ts and new:
+                mention_events.append((ts, new))
+    else:
+        logger.error(f"Failed to get updates for {work_item_id}: {uresp.status_code}")
 
     combined = "\n".join(texts)
     return combined, mention_events
@@ -332,12 +352,19 @@ def check_issue_status():
             content_text, mention_events = get_release_signals(work_item_id, wi_fields, auth)
             vrcid_match = VRCID_RE.search(content_text)
             if vrcid_match:
-                mfg_guids = get_mfg_te_member_guids(auth)
                 close_time = parse_ado_datetime(
                     wi_fields.get('Microsoft.VSTS.Common.ClosedDate')
                     or wi_fields.get('Microsoft.VSTS.Common.StateChangeDate')
                     or wi_fields.get('System.ChangedDate'))
-                if mfg_guids and not mfg_tagged_within_window(mention_events, mfg_guids, close_time):
+                mfg_guids = get_mfg_te_member_guids(auth)
+                tagged = mfg_tagged_within_window(mention_events, mfg_guids, close_time)
+                if not tagged:
+                    # A member may have just been added to an MFG group; the cached
+                    # set could be stale, so re-check with a fresh membership pull
+                    # before blocking a legitimate close.
+                    mfg_guids = get_mfg_te_member_guids(auth, force_refresh=True)
+                    tagged = mfg_tagged_within_window(mention_events, mfg_guids, close_time)
+                if mfg_guids and not tagged:
                     reasons.append(f"Release {vrcid_match.group(0)} not notified to MFG. Please "
                                    "@mention at least one MFG TE (QCG/QMF/QMN/QTMC TE) member "
                                    "within one day of closing this Feature.")
