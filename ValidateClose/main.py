@@ -4,6 +4,7 @@ from flask import Flask, request
 import sys
 import re
 import time
+import html
 import urllib.parse
 import logging
 from datetime import datetime, timedelta
@@ -100,6 +101,15 @@ def extract_mention_guids(text):
 # reject typos ("VRDID") and stray 6-digit numbers (e.g. emoji codepoints).
 # Presence of a VRCID = a real release, and only then must MFG be notified.
 VRCID_RE = re.compile(r'VRC(?:\s*ID)?\s*[#:]?\s*(\d{6})(?!\d)', re.IGNORECASE)
+
+
+def find_vrcid(text):
+    """Search for a VRCID, tolerating HTML markup around the value. Engineers
+    format it in the description, so the number is often bolded or split by tags
+    (e.g. 'VRC ID: <b>338006</b>') or separated by &nbsp; -- strip tags and decode
+    entities first so the pattern can bridge them."""
+    normalized = html.unescape(re.sub(r'<[^>]+>', ' ', text or ''))
+    return VRCID_RE.search(normalized)
 
 # Cache the resolved MFG member GUID set per instance; refresh daily.
 _MFG_CACHE = {"guids": set(), "ts": 0.0}
@@ -343,7 +353,7 @@ def check_issue_status():
         # intentionally NOT used -- engineers don't fill it reliably.
         if work_item_type == 'Feature' and is_release_customer_area(area_path):
             content_text, mention_events = get_release_signals(work_item_id, wi_fields, auth)
-            vrcid_match = VRCID_RE.search(content_text)
+            vrcid_match = find_vrcid(content_text)
             if vrcid_match:
                 close_time = parse_ado_datetime(
                     wi_fields.get('Microsoft.VSTS.Common.ClosedDate')
